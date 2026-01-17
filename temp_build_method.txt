@@ -1,0 +1,414 @@
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+    
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      constraints: BoxConstraints(
+        maxHeight: screenHeight * 0.9,
+      ),
+      padding: EdgeInsets.only(
+        left: 20, 
+        right: 20, 
+        top: 20, 
+        bottom: keyboardHeight + 20
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  widget.isEditing ? 'Edit Point Details' : 'Add Point Details',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87
+                  ),
+                ),
+                if (!widget.isEditing)
+                  IconButton(
+                    icon: Icon(
+                      _isLiveTracking ? Icons.gps_fixed : Icons.gps_not_fixed,
+                      color: _isLiveTracking ? Colors.green : Colors.grey,
+                    ),
+                    onPressed: _toggleLiveTracking,
+                    tooltip: _isLiveTracking ? 'Stop live tracking' : 'Start live tracking',
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Room Name/Number Input
+            TextField(
+              controller: _roomNameController,
+              style: const TextStyle(color: Colors.black87, fontSize: 16),
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                labelText: 'Room Name/Number *',
+                hintText: 'e.g., Room 101, Conference Hall A',
+                prefixIcon: const Icon(Icons.meeting_room),
+                border: const OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Live Coordinate Display with Manual Edit
+            if (widget.allowManualEdit) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Coordinates (8 decimal = ~1mm)',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  if (_isLiveTracking)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.fiber_manual_record, size: 8, color: Colors.green.shade600),
+                          const SizedBox(width: 4),
+                          Text(
+                            'LIVE',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _latController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      style: const TextStyle(color: Colors.black87, fontSize: 13, fontFamily: 'monospace'),
+                      onChanged: (_) {
+                        _validateBoundary();
+                        if (_isLiveTracking) _stopLiveTracking();
+                      },
+                      decoration: InputDecoration(
+                        labelText: 'Latitude',
+                        labelStyle: TextStyle(color: Colors.grey.shade600),
+                        border: OutlineInputBorder(
+                          borderSide: BorderSide(color: _isInsideBoundary ? Colors.grey.shade300 : Colors.red),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: _isInsideBoundary ? Colors.grey.shade300 : Colors.red),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: _isInsideBoundary ? Colors.blue : Colors.red, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _lngController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      style: const TextStyle(color: Colors.black87, fontSize: 13, fontFamily: 'monospace'),
+                      onChanged: (_) {
+                        _validateBoundary();
+                        if (_isLiveTracking) _stopLiveTracking();
+                      },
+                      decoration: InputDecoration(
+                        labelText: 'Longitude',
+                        labelStyle: TextStyle(color: Colors.grey.shade600),
+                        border: OutlineInputBorder(
+                          borderSide: BorderSide(color: _isInsideBoundary ? Colors.grey.shade300 : Colors.red),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: _isInsideBoundary ? Colors.grey.shade300 : Colors.red),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: _isInsideBoundary ? Colors.blue : Colors.red, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (!_isInsideBoundary)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 16),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'This point is outside the building boundary',
+                          style: TextStyle(color: Colors.red.shade600, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 16),
+              
+              // Step-based Adjustment
+              ExpansionTile(
+                title: const Text('Manual Step Adjustment', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Adjust coordinates by walking steps', style: TextStyle(fontSize: 12)),
+                leading: const Icon(Icons.directions_walk, color: Colors.orange),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _stepsController,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Number of Steps',
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                value: _stepDirection,
+                                decoration: const InputDecoration(
+                                  labelText: 'Direction',
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                                items: ['North', 'South', 'East', 'West', 'Northeast', 'Northwest', 'Southeast', 'Southwest']
+                                    .map((dir) => DropdownMenuItem(value: dir, child: Text(dir, style: const TextStyle(fontSize: 13))))
+                                    .toList(),
+                                onChanged: (val) => setState(() => _stepDirection = val!),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: _applyStepAdjustment,
+                          icon: const Icon(Icons.adjust, size: 18),
+                          label: const Text('Apply Adjustment'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 40),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Step length: ${_stepLength}m per step',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+            
+            // Floor Selection
+            Text('Floor Number: $_floor', style: const TextStyle(fontSize: 16, color: Colors.black87, fontWeight: FontWeight.w600)),
+            Slider(
+              value: _floor.toDouble(),
+              min: -2,
+              max: 10,
+              divisions: 12,
+              label: 'Floor $_floor',
+              activeColor: Colors.blue,
+              onChanged: (v) => setState(() => _floor = v.toInt()),
+            ),
+            const SizedBox(height: 8),
+            
+            // Camera Section (Take Photo)
+            Container(
+              height: 120,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  // Camera Button
+                  GestureDetector(
+                    onTap: _takePhoto,
+                    child: Container(
+                      width: 100,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.blue.shade400, Colors.blue.shade600],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.blue.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.camera_alt, color: Colors.white, size: 32),
+                          SizedBox(height: 8),
+                          Text('Take Photo', style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Selected Images
+                  ..._selectedImages.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final img = entry.value;
+                    return Container(
+                      width: 100,
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        image: DecorationImage(
+                          image: FileImage(File(img.path)),
+                          fit: BoxFit.cover,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: GestureDetector(
+                              onTap: () => setState(() => _selectedImages.removeAt(index)),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.close, size: 16, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${index + 1}',
+                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+
+            // Notes Field
+            TextField(
+              controller: _noteController,
+              style: const TextStyle(color: Colors.black87),
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: 'Additional Notes',
+                hintText: 'Add any additional information...',
+                prefixIcon: const Icon(Icons.note_alt_outlined),
+                border: const OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // Save Button
+            ElevatedButton.icon(
+              onPressed: (_isInsideBoundary && _roomNameController.text.trim().isNotEmpty) ? () {
+                final lat = double.tryParse(_latController.text) ?? widget.initialLatitude;
+                final lng = double.tryParse(_lngController.text) ?? widget.initialLongitude;
+                Navigator.pop(context, {
+                  'floor': _floor,
+                  'note': _noteController.text.trim(),
+                  'roomName': _roomNameController.text.trim(),
+                  'images': _selectedImages,
+                  'videos': <XFile>[],
+                  'latitude': lat,
+                  'longitude': lng,
+                });
+              } : null,
+              icon: Icon(widget.isEditing ? Icons.save : Icons.add_location_alt),
+              label: Text(
+                _isInsideBoundary 
+                    ? (_roomNameController.text.trim().isEmpty ? 'ENTER ROOM NAME' : (widget.isEditing ? 'UPDATE POINT' : 'SAVE POINT'))
+                    : 'OUTSIDE BOUNDARY',
+                style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+              ),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: _isInsideBoundary && _roomNameController.text.trim().isNotEmpty 
+                    ? Colors.black 
+                    : Colors.grey,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade400,
+                disabledForegroundColor: Colors.white70,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
