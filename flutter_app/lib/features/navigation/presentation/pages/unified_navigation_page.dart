@@ -16,16 +16,19 @@ import '../../../../core/positioning/location_detection_service.dart';
 import '../../../../core/storage/token_storage.dart';
 import '../../../buildings/domain/entities/building.dart';
 import '../widgets/ar_overlay_widgets.dart';
+import 'ar_navigation_page.dart';
 import 'dart:math' as math;
 
 /// Unified Navigation Page
 /// Single page for all navigation needs: location selection, camera navigation, QR positioning
 class UnifiedNavigationPage extends StatefulWidget {
   final Building building;
+  final String? destinationNodeId; // Optional pre-selected destination
 
   const UnifiedNavigationPage({
     super.key,
     required this.building,
+    this.destinationNodeId,
   });
 
   @override
@@ -50,7 +53,6 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
   bool _isLoading = false;
   bool _isCameraActive = false;
   bool _isQRScannerActive = false;
-  bool _isARActive = false; // AR Navigation state
   bool _isDetectingLocation = false;
   bool _useAutoLocation = true; // Auto-detect location by default
   double _locationConfidence = 0.0;
@@ -58,22 +60,8 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
   CameraController? _cameraController;
   MobileScannerController? _qrController;
 
-  // AR Navigation state
-  double _currentHeading = 0.0;
-  int _currentStepCount = 0;
-  int _currentRouteIndex = 0;
-  bool _showFootsteps = true;
-  bool _showArrow = true;
-  bool _showCompass = true;
-  bool _audioEnabled = true;
-  bool _isPlayingAudio = false;
-  String _currentInstruction = '';
-  StreamSubscription<CompassEvent>? _compassSubscription;
-  StreamSubscription<StepCount>? _stepCounterSubscription;
+  // Proximity detection state (GPS-based)
   StreamSubscription<Position>? _gpsSubscription;
-  FlutterTts? _flutterTts;
-  
-  // Proximity detection state
   Map<String, dynamic>? _nearestNode;
   double _nearestNodeDistance = double.infinity;
   Timer? _proximityCheckTimer;
@@ -82,11 +70,19 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
   @override
   void initState() {
     super.initState();
+    print('🔍 UnifiedNavigationPage initState - destinationNodeId: ${widget.destinationNodeId}');
+    
+    // If destination is pre-selected (from Intent Navigation), disable auto-location
+    // so user can manually select start point
+    if (widget.destinationNodeId != null) {
+      _useAutoLocation = false;
+      print('🔍 Disabled auto-location because destination is pre-selected');
+    }
+    
     _pdrEngine = getIt<PDREngine>();
     _locationDetectionService = getIt<LocationDetectionService>();
     _setupLocationDetection();
     _loadNodes();
-    _initFlutterTts();
   }
 
   void _setupLocationDetection() {
@@ -133,14 +129,6 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
     };
   }
 
-  Future<void> _initFlutterTts() async {
-    _flutterTts = FlutterTts();
-    await _flutterTts!.setLanguage("en-US");
-    await _flutterTts!.setSpeechRate(0.5);
-    await _flutterTts!.setVolume(1.0);
-    await _flutterTts!.setPitch(1.0);
-  }
-
   /// Start GPS-based proximity detection for nearby nodes
   Future<void> _startProximityDetection() async {
     if (_nodes.isEmpty) return;
@@ -184,6 +172,8 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
   void _checkProximityToNodes(Position userPosition) {
     if (_nodes.isEmpty) return;
     
+    print('🔍 GPS Position: ${userPosition.latitude}, ${userPosition.longitude}');
+    
     const double initialRadius = 5.0;
     const double radiusIncrement = 5.0;
     const double maxRadius = 50.0; // 50 meters for indoor navigation
@@ -194,6 +184,8 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
     
     // Expanding radius search
     while (currentRadius <= maxRadius) {
+      print('🔍 Checking radius: ${currentRadius}m');
+      
       for (final node in _nodes) {
         final nodeLat = (node['latitude'] as num?)?.toDouble() ?? 0.0;
         final nodeLng = (node['longitude'] as num?)?.toDouble() ?? 0.0;
@@ -210,17 +202,21 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
         if (distance <= currentRadius && distance < closestDistance) {
           closestDistance = distance;
           closestNode = node;
+          print('🔍 Found node within ${currentRadius}m: ${node['label']} at ${distance.toStringAsFixed(1)}m');
         }
       }
       
       // Found a node within current radius
       if (closestNode != null) {
+        print('✅ Closest node: ${closestNode['label']} at ${closestDistance.toStringAsFixed(1)}m');
         _handleNearbyNode(closestNode, closestDistance);
         return;
       }
       
       currentRadius += radiusIncrement;
     }
+    
+    print('⚠️ No nodes found within ${maxRadius}m');
     
     // No nodes found within max radius
     if (_nearestNode != null) {
@@ -233,6 +229,11 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
 
   /// Handle when a nearby node is detected
   void _handleNearbyNode(Map<String, dynamic> node, double distance) {
+    print('🔍 _handleNearbyNode called');
+    print('🔍 Node: ${node['label']}, Distance: ${distance.toStringAsFixed(1)}m');
+    print('🔍 widget.destinationNodeId: ${widget.destinationNodeId}');
+    print('🔍 _startNode: ${_startNode != null ? _startNode!['label'] : 'NULL'}');
+    
     // Only update if it's a new node or distance changed significantly
     if (_nearestNode == null || 
         _nearestNode!['id'] != node['id'] ||
@@ -243,9 +244,36 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
         _nearestNodeDistance = distance;
       });
       
-      // Show notification for new node
-      if (_nearestNode!['id'] != node['id']) {
-        _showProximityNotification(node, distance);
+      // Auto-set as start location if:
+      // 1. Coming from Intent Navigation (destination pre-selected)
+      // 2. Start location not yet set
+      // 3. Within reasonable distance (< 50m)
+      if (widget.destinationNodeId != null && 
+          _startNode == null && 
+          distance < 50.0) {
+        print('✅ Auto-setting start location...');
+        setState(() {
+          _startNode = node;
+        });
+        print('✅ Auto-set start location to nearby node: ${node['label']} (${distance.toStringAsFixed(1)}m away)');
+        _showSuccess('Start location set to ${node['label']} (${distance.toStringAsFixed(0)}m away). Walk towards it!');
+        
+        // Auto-calculate route after setting start
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && _endNode != null) {
+            _calculateRoute();
+          }
+        });
+      } else {
+        print('⚠️ Not auto-setting because:');
+        print('   - destinationNodeId is null: ${widget.destinationNodeId == null}');
+        print('   - _startNode already set: ${_startNode != null}');
+        print('   - distance >= 50m: ${distance >= 50.0}');
+        
+        // Show notification for new node
+        if (_nearestNode!['id'] != node['id']) {
+          _showProximityNotification(node, distance);
+        }
       }
       
       print('📍 Near ${node['label']}: ${distance.toStringAsFixed(1)}m');
@@ -322,33 +350,10 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
     _proximityCheckTimer = null;
   }
 
-  Future<void> _initSensors() async {
-    // Initialize compass
-    _compassSubscription = FlutterCompass.events?.listen((event) {
-      if (mounted && event.heading != null) {
-        setState(() {
-          _currentHeading = event.heading!;
-        });
-      }
-    });
-
-    // Initialize pedometer
-    _stepCounterSubscription = Pedometer.stepCountStream.listen((StepCount stepCount) {
-      if (mounted) {
-        setState(() {
-          _currentStepCount = stepCount.steps;
-        });
-      }
-    });
-  }
-
   @override
   void dispose() {
     _cameraController?.dispose();
     _qrController?.dispose();
-    _compassSubscription?.cancel();
-    _stepCounterSubscription?.cancel();
-    _flutterTts?.stop();
     _locationDetectionService.stopDetection();
     _locationDetectionService.dispose();
     _stopProximityDetection();
@@ -370,25 +375,59 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
         final data = json.decode(response.body);
         final nodesList = data['nodes'] as List;
         
+        final mappedNodes = nodesList.map((node) => {
+          'id': node['id'],
+          'label': node['label'] ?? 'Node ${node['id']}',
+          'floor_number': node['floor_number'] ?? 0,
+          'node_type': node['node_type'] ?? 'waypoint',
+          'latitude': (node['latitude'] ?? 0.0).toDouble(),
+          'longitude': (node['longitude'] ?? 0.0).toDouble(),
+          'qr_code': node['qr_code'] ?? 'indoor-nav://${widget.building.id}/${node['id']}',
+          'edges': node['edges'] ?? [],
+        }).toList();
+        
+        print('🔍 Loaded ${mappedNodes.length} nodes');
+        print('🔍 Looking for destinationNodeId: ${widget.destinationNodeId}');
+        
+        // Find preselected destination before setState
+        Map<String, dynamic>? preselectedDestination;
+        if (widget.destinationNodeId != null) {
+          print('🔍 Searching for destination node...');
+          for (var node in mappedNodes) {
+            print('🔍 Node ID: ${node['id']}, Label: ${node['label']}');
+          }
+          
+          preselectedDestination = mappedNodes.firstWhere(
+            (node) => node['id'] == widget.destinationNodeId,
+            orElse: () => {},
+          );
+          
+          if (preselectedDestination.isEmpty) {
+            print('❌ Destination node NOT FOUND!');
+            preselectedDestination = null;
+          } else {
+            print('✅ Found destination: ${preselectedDestination['label']} (${preselectedDestination['id']})');
+          }
+        }
+        
         setState(() {
-          _nodes = nodesList.map((node) => {
-            'id': node['id'],
-            'label': node['label'] ?? 'Node ${node['id']}',
-            'floor_number': node['floor_number'] ?? 0,
-            'node_type': node['node_type'] ?? 'waypoint',
-            'latitude': (node['latitude'] ?? 0.0).toDouble(),
-            'longitude': (node['longitude'] ?? 0.0).toDouble(),
-            'qr_code': node['qr_code'] ?? 'indoor-nav://${widget.building.id}/${node['id']}',
-            'edges': node['edges'] ?? [],
-          }).toList();
+          _nodes = mappedNodes;
+          _endNode = preselectedDestination;
           _isLoading = false;
         });
+        
+        print('🔍 After setState - _endNode: ${_endNode != null ? _endNode!['label'] : 'NULL'}');
         
         if (_nodes.isEmpty) {
           _showError('No navigation points found for this building. Please use the Admin panel to create navigation points first.');
         } else {
           // Only start proximity detection, not auto-location
           _startProximityDetection();
+          
+          // Show success message if destination was preselected
+          if (preselectedDestination != null) {
+            _showSuccess('Destination set to ${preselectedDestination['label']}');
+          }
         }
       } else {
         setState(() => _isLoading = false);
@@ -444,15 +483,36 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
   }
 
   Future<void> _calculateRoute() async {
+    print('🔍 _calculateRoute called');
+    print('🔍 _useAutoLocation: $_useAutoLocation');
+    print('🔍 _detectedLocation: ${_detectedLocation != null ? _detectedLocation!['label'] : 'NULL'}');
+    print('🔍 _startNode: ${_startNode != null ? _startNode!['label'] : 'NULL'}');
+    print('🔍 _endNode: ${_endNode != null ? _endNode!['label'] : 'NULL'}');
+    
     // Use detected location if auto-location is enabled and available
     if (_useAutoLocation && _detectedLocation != null) {
       _startNode = _detectedLocation;
+      print('🔍 Set _startNode to detected location: ${_startNode!['label']}');
     }
     
-    if (_startNode == null || _endNode == null) {
-      _showError('Please select destination${!_useAutoLocation ? ' and start location' : ''}');
+    // Check if we have both start and end nodes
+    if (_endNode == null) {
+      print('❌ End node is null');
+      _showError('Please select a destination');
       return;
     }
+    
+    if (_startNode == null) {
+      print('❌ Start node is null');
+      if (_useAutoLocation) {
+        _showError('Waiting for location detection. Turn off Auto-Detect or use "Set as Start" from nearby location.');
+      } else {
+        _showError('Please select a start location or enable Auto-Detect');
+      }
+      return;
+    }
+    
+    print('✅ Both nodes available, proceeding with route calculation');
 
     setState(() => _isLoading = true);
     try {
@@ -525,7 +585,7 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
   void _startContinuousTracking() {
     // Monitor position changes and recalculate route if user deviates
     Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (!_isARActive || _route.isEmpty) {
+      if (_route.isEmpty) {
         timer.cancel();
         return;
       }
@@ -647,110 +707,19 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
       return;
     }
 
-    try {
-      final cameras = await availableCameras();
-      if (cameras.isEmpty) {
-        _showError('No camera available');
-        return;
-      }
-
-      _cameraController = CameraController(
-        cameras.first,
-        ResolutionPreset.high,
-        enableAudio: false,
+    // Navigate to AR Navigation Page
+    if (mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ArNavigationPage(
+            buildingName: widget.building.name,
+            route: _route,
+            initialRouteIndex: 0,
+          ),
+        ),
       );
-
-      await _cameraController!.initialize();
-      
-      // Initialize sensors for AR navigation
-      await _initSensors();
-      
-      setState(() {
-        _isARActive = true;
-        _currentRouteIndex = 0;
-        _currentStepCount = 0;
-      });
-      
-      // Start PDR engine for position tracking
-      _pdrEngine.start();
-      
-      // Give initial instructions
-      if (_route.isNotEmpty) {
-        _speakInstruction('Starting AR navigation to ${_route.last['label']}');
-      }
-    } catch (e) {
-      _showError('Failed to open AR navigation: $e');
     }
-  }
-
-  void _closeARNavigation() {
-    _cameraController?.dispose();
-    _cameraController = null;
-    _compassSubscription?.cancel();
-    _stepCounterSubscription?.cancel();
-    _flutterTts?.stop();
-    
-    setState(() {
-      _isARActive = false;
-      _showFootsteps = true;
-      _showArrow = true;
-      _showCompass = true;
-      _audioEnabled = true;
-    });
-  }
-
-  void _speakInstruction(String instruction) async {
-    if (_audioEnabled && _flutterTts != null) {
-      setState(() {
-        _isPlayingAudio = true;
-        _currentInstruction = instruction;
-      });
-      
-      await _flutterTts!.speak(instruction);
-      
-      setState(() {
-        _isPlayingAudio = false;
-        _currentInstruction = '';
-      });
-    }
-  }
-
-  void _moveToNextMilestone() {
-    if (_currentRouteIndex < _route.length - 1) {
-      setState(() {
-        _currentRouteIndex++;
-      });
-      
-      if (_currentRouteIndex < _route.length) {
-        final nextNode = _route[_currentRouteIndex];
-        _speakInstruction('Go to ${nextNode['label']}');
-      }
-    } else {
-      _speakInstruction('You have reached your destination!');
-    }
-  }
-
-  void _moveToPreviousMilestone() {
-    if (_currentRouteIndex > 0) {
-      setState(() {
-        _currentRouteIndex--;
-      });
-      
-      final currentNode = _route[_currentRouteIndex];
-      _speakInstruction('Going back to ${currentNode['label']}');
-    }
-  }
-
-  double _calculateTargetHeading() {
-    if (_currentRouteIndex >= _route.length - 1) return _currentHeading;
-    
-    final current = _route[_currentRouteIndex];
-    final next = _route[_currentRouteIndex + 1];
-    
-    // Calculate heading from current to next node
-    // For simplicity, we'll return the user's current heading
-    // In a real implementation, this would calculate the direction vector
-    return _currentHeading;
   }
 
   void _openQRScanner() {
@@ -825,10 +794,6 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
 
     if (_isCameraActive) {
       return _buildCameraNavigation();
-    }
-
-    if (_isARActive) {
-      return _buildARNavigation();
     }
 
     return _buildLocationSelection();
@@ -1222,6 +1187,52 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
                     const SizedBox(height: 24),
                   ],
 
+                  // Info card when destination is pre-selected from Intent Navigation
+                  if (widget.destinationNodeId != null && _endNode != null) ...[
+                    Card(
+                      color: Colors.deepPurple.withOpacity(0.2),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              color: Colors.deepPurple.shade300,
+                              size: 24,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Destination Pre-Selected',
+                                    style: TextStyle(
+                                      color: Colors.deepPurple.shade200,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _startNode == null
+                                        ? 'Walk near any location to auto-detect your start point, or select manually below'
+                                        : 'Start location detected! Ready to calculate route.',
+                                    style: TextStyle(
+                                      color: Colors.grey[400],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
                   // End Location
                   const Text(
                     'Destination',
@@ -1573,190 +1584,6 @@ class _UnifiedNavigationPageState extends State<UnifiedNavigationPage> {
                           fontSize: 12,
                         ),
                         textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildARNavigation() {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // Camera Preview
-          if (_cameraController != null && _cameraController!.value.isInitialized)
-            SizedBox.expand(
-              child: CameraPreview(_cameraController!),
-            ),
-
-          // AR Overlays
-          if (_route.isNotEmpty)
-            ArFootstepsOverlay(
-              route: _route,
-              currentIndex: _currentRouteIndex,
-              userHeading: _currentHeading,
-              showFootsteps: _showFootsteps,
-            ),
-
-          if (_route.isNotEmpty && _currentRouteIndex < _route.length - 1)
-            ArDirectionArrow(
-              currentWaypoint: _currentRouteIndex > 0 ? _route[_currentRouteIndex - 1] : null,
-              nextWaypoint: _route[_currentRouteIndex],
-              showArrow: _showArrow,
-            ),
-
-          ArCompassIndicator(
-            currentHeading: _currentHeading,
-            targetHeading: _calculateTargetHeading(),
-            showCompass: _showCompass,
-          ),
-
-          ArMilestoneIndicator(
-            route: _route,
-            currentIndex: _currentRouteIndex,
-            buildingName: widget.building.name,
-          ),
-
-          AudioIndicator(
-            isPlaying: _isPlayingAudio,
-            instruction: _currentInstruction,
-            audioEnabled: _audioEnabled,
-          ),
-
-          // Navigation Controls
-          SafeArea(
-            child: Column(
-              children: [
-                // Top Bar
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  color: Colors.black54,
-                  child: Row(
-                    children: [
-                      IconButton(
-                        onPressed: _closeARNavigation,
-                        icon: const Icon(Icons.close, color: Colors.white),
-                      ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'AR Navigation',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (_route.isNotEmpty && _currentRouteIndex < _route.length)
-                              Text(
-                                'To: ${_route.last['label']}',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () {
-                          setState(() {
-                            _audioEnabled = !_audioEnabled;
-                          });
-                        },
-                        icon: Icon(
-                          _audioEnabled ? Icons.volume_up : Icons.volume_off,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const Spacer(),
-
-                // Bottom Controls
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.8),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      // Navigation buttons
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: _currentRouteIndex > 0 ? _moveToPreviousMilestone : null,
-                            icon: const Icon(Icons.arrow_back_ios, size: 16),
-                            label: const Text('Previous'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: const BorderSide(color: Colors.white),
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: _currentRouteIndex < _route.length - 1 ? _moveToNextMilestone : null,
-                            icon: const Icon(Icons.arrow_forward_ios, size: 16),
-                            label: const Text('Next'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: const BorderSide(color: Colors.white),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // Settings buttons
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        alignment: WrapAlignment.center,
-                        children: [
-                          FilterChip(
-                            label: const Text('Footsteps', style: TextStyle(fontSize: 12)),
-                            selected: _showFootsteps,
-                            onSelected: (bool selected) {
-                              setState(() => _showFootsteps = selected);
-                            },
-                            selectedColor: AppColors.primaryOrange,
-                          ),
-                          FilterChip(
-                            label: const Text('Arrow', style: TextStyle(fontSize: 12)),
-                            selected: _showArrow,
-                            onSelected: (bool selected) {
-                              setState(() => _showArrow = selected);
-                            },
-                            selectedColor: AppColors.primaryOrange,
-                          ),
-                          FilterChip(
-                            label: const Text('Compass', style: TextStyle(fontSize: 12)),
-                            selected: _showCompass,
-                            onSelected: (bool selected) {
-                              setState(() => _showCompass = selected);
-                            },
-                            selectedColor: AppColors.primaryOrange,
-                          ),
-                        ],
                       ),
                     ],
                   ),

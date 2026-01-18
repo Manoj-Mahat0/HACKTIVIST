@@ -470,4 +470,154 @@ class LocalDatabase {
     
     print('✅ Deleted all navigation data for building: $buildingId');
   }
+
+  // ============================================
+  // ENHANCED NAVIGATION DATA STORAGE
+  // ============================================
+
+  /// Save navigation graph metadata (for offline use)
+  Future<void> saveNavigationGraphMetadata(String buildingId, Map<String, dynamic> graphData) async {
+    try {
+      final box = await Hive.openBox('navigation_graphs');
+      await box.put(buildingId, graphData);
+      print('✅ Saved navigation graph metadata for building: $buildingId');
+    } catch (e) {
+      print('❌ Error saving navigation graph metadata: $e');
+    }
+  }
+
+  /// Get navigation graph metadata
+  Future<Map<String, dynamic>?> getNavigationGraphMetadata(String buildingId) async {
+    try {
+      final box = await Hive.openBox('navigation_graphs');
+      return box.get(buildingId) as Map<String, dynamic>?;
+    } catch (e) {
+      print('❌ Error getting navigation graph metadata: $e');
+      return null;
+    }
+  }
+
+  /// Save locations for smart navigation
+  Future<void> saveLocations(String buildingId, List<dynamic> locations) async {
+    try {
+      final box = await Hive.openBox('locations');
+      await box.put(buildingId, locations);
+      print('✅ Saved ${locations.length} locations for building: $buildingId');
+    } catch (e) {
+      print('❌ Error saving locations: $e');
+    }
+  }
+
+  /// Get locations for a building
+  Future<List<dynamic>> getLocations(String buildingId) async {
+    try {
+      final box = await Hive.openBox('locations');
+      return (box.get(buildingId) as List<dynamic>?) ?? [];
+    } catch (e) {
+      print('❌ Error getting locations: $e');
+      return [];
+    }
+  }
+
+  /// Save categories for a building
+  Future<void> saveCategories(String buildingId, List<dynamic> categories) async {
+    try {
+      final box = await Hive.openBox('categories');
+      await box.put(buildingId, categories);
+      print('✅ Saved ${categories.length} categories for building: $buildingId');
+    } catch (e) {
+      print('❌ Error saving categories: $e');
+    }
+  }
+
+  /// Get categories for a building
+  Future<List<String>> getCategories(String buildingId) async {
+    try {
+      final box = await Hive.openBox('categories');
+      final categories = box.get(buildingId) as List<dynamic>?;
+      return categories?.map((c) => c.toString()).toList() ?? [];
+    } catch (e) {
+      print('❌ Error getting categories: $e');
+      return [];
+    }
+  }
+
+  /// Save shortest paths (precomputed routes)
+  Future<void> saveShortestPaths(String buildingId, Map<String, dynamic> paths) async {
+    try {
+      final box = await Hive.openBox('shortest_paths');
+      await box.put(buildingId, paths);
+      print('✅ Saved shortest paths for building: $buildingId');
+    } catch (e) {
+      print('❌ Error saving shortest paths: $e');
+    }
+  }
+
+  /// Get shortest paths for a building
+  Future<Map<String, dynamic>?> getShortestPaths(String buildingId) async {
+    try {
+      final box = await Hive.openBox('shortest_paths');
+      return box.get(buildingId) as Map<String, dynamic>?;
+    } catch (e) {
+      print('❌ Error getting shortest paths: $e');
+      return null;
+    }
+  }
+
+  /// Get locations by category
+  Future<List<dynamic>> getLocationsByCategory(String buildingId, String category) async {
+    try {
+      final locations = await getLocations(buildingId);
+      return locations.where((loc) {
+        final locCategory = loc['category']?.toString().toLowerCase();
+        return locCategory == category.toLowerCase();
+      }).toList();
+    } catch (e) {
+      print('❌ Error getting locations by category: $e');
+      return [];
+    }
+  }
+
+  /// Check if building has complete offline data
+  Future<bool> hasCompleteOfflineData(String buildingId) async {
+    try {
+      final building = await getBuilding(buildingId);
+      if (building == null) return false;
+
+      final nodes = await getNavigationNodes(buildingId);
+      if (nodes.isEmpty) return false;
+
+      final graphMetadata = await getNavigationGraphMetadata(buildingId);
+      final hasGraph = graphMetadata != null;
+
+      print('📊 Offline data check for $buildingId: ${nodes.length} nodes, graph: $hasGraph');
+      return true;
+    } catch (e) {
+      print('❌ Error checking offline data: $e');
+      return false;
+    }
+  }
+
+  /// Get offline navigation statistics
+  Future<Map<String, dynamic>> getOfflineNavigationStats(String buildingId) async {
+    try {
+      final nodes = await getNavigationNodes(buildingId);
+      final locations = await getLocations(buildingId);
+      final categories = await getCategories(buildingId);
+      final graphMetadata = await getNavigationGraphMetadata(buildingId);
+      final shortestPaths = await getShortestPaths(buildingId);
+
+      return {
+        'nodes_count': nodes.length,
+        'locations_count': locations.length,
+        'categories_count': categories.length,
+        'has_navigation_graph': graphMetadata != null,
+        'has_shortest_paths': shortestPaths != null,
+        'is_ready_for_navigation': nodes.isNotEmpty,
+      };
+    } catch (e) {
+      print('❌ Error getting offline navigation stats: $e');
+      return {};
+    }
+  }
 }

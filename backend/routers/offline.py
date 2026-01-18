@@ -14,10 +14,9 @@ async def download_building_for_offline(
     client_version: int = 0,
     current_user: User = Depends(get_current_user)
 ):
-
     """
     Download complete building data for offline navigation.
-    Returns all floors, rooms, waypoints, and AR markers.
+    Returns all floors, rooms, waypoints, AR markers, AND navigation graph data.
     """
     try:
         # Get building
@@ -32,7 +31,7 @@ async def download_building_for_offline(
         # Get all floors for this building
         floors = await Floor.find(Floor.building_id == ObjectId(building_id)).to_list()
         
-        # Get all rooms for this building
+        # Get all rooms, waypoints, and markers
         rooms = []
         waypoints = []
         markers = []
@@ -50,41 +49,130 @@ async def download_building_for_offline(
             floor_markers = await ARMarker.find(ARMarker.floor_id == floor.id).to_list()
             markers.extend(floor_markers)
         
-        # Convert navigation nodes from waypoints
+        # Get navigation graph (indoor graph)
+        navigation_graph = None
         navigation_nodes = []
-        for idx, waypoint in enumerate(waypoints):
-            # Create navigation node with connections
-            connected_nodes = []
-            distances = {}
+        shortest_paths = {}
+        
+        try:
+            from models import IndoorGraph, BuildingGraph
             
-            # Connect to nearby waypoints on same floor (within 15 meters)
-            for other_idx, other_waypoint in enumerate(waypoints):
-                if other_idx != idx and waypoint.floor_id == other_waypoint.floor_id:
-                    # Calculate distance
-                    dx = waypoint.latitude - other_waypoint.latitude
-                    dy = waypoint.longitude - other_waypoint.longitude
-                    distance = (dx**2 + dy**2)**0.5 * 111000  # Convert to meters
-                    
-                    if distance < 15:  # Within 15 meters
-                        connected_nodes.append(str(other_waypoint.id))
-                        # Basic weighted graph: Weight = Distance for now
-                        # Future: Add multipliers for stairs/elevators
-                        distances[str(other_waypoint.id)] = {
-                            "distance": distance,
-                            "weight": distance
-                        }
+            # Try IndoorGraph first
+            indoor_graph = await IndoorGraph.find_one(IndoorGraph.building_id == ObjectId(building_id))
+            if indoor_graph and indoor_graph.nodes:
+                navigation_graph = {
+                    "type": "indoor_graph",
+                    "nodes": [n.dict() if hasattr(n, 'dict') else n for n in indoor_graph.nodes],
+                    "shortest_paths": indoor_graph.shortest_paths if hasattr(indoor_graph, 'shortest_paths') else {},
+                    "accessible_paths": indoor_graph.accessible_paths if hasattr(indoor_graph, 'accessible_paths') else {},
+                }
+                
+                # Normalize node format for consistency
+                normalized_nodes = []
+                for node in navigation_graph["nodes"]:
+                    normalized_node = {
+                        "id": node.get("id", ""),
+                        "label": node.get("label", ""),
+                        "name": node.get("label", ""),
+                        "building_id": building_id,
+                        "floor_id": None,  # IndoorGraph nodes don't have floor_id
+                        "x": node.get("latitude", 0),
+                        "y": node.get("longitude", 0),
+                        "z": node.get("floor_number", 0),
+                        "latitude": node.get("latitude", 0),
+                        "longitude": node.get("longitude", 0),
+                        "floor_number": node.get("floor_number", 0),
+                        "type": node.get("node_type", "waypoint"),
+                        "node_type": node.get("node_type", "waypoint"),
+                        "image_url": node.get("image_url"),
+                        "qr_code": node.get("qr_code", f"indoor-nav://{building_id}/{node.get('id', '')}"),
+                        "is_accessible": node.get("is_accessible", True),
+                        "is_emergency_exit": node.get("is_emergency_exit", False),
+                        "landmark_description": node.get("landmark_description"),
+                        "category": node.get("category"),
+                        "edges": node.get("edges", []),
+                        "connected_node_ids": [e.get("to_node_id") for e in node.get("edges", [])],
+                        "neighbors": [e.get("to_node_id") for e in node.get("edges", [])],
+                        "distances": {e.get("to_node_id"): e.get("steps", 0) * 0.7 for e in node.get("edges", [])},
+                    }
+                    normalized_nodes.append(normalized_node)
+                
+                navigation_nodes = normalized_nodes
+                shortest_paths = navigation_graph.get("shortest_paths", {})
             
-            navigation_nodes.append({
-                "id": str(waypoint.id),
-                "building_id": building_id,
-                "floor_id": str(waypoint.floor_id),
-                "x": waypoint.latitude,
-                "y": waypoint.longitude,
-                "type": waypoint.waypoint_type or "corridor",
-                "connected_node_ids": connected_nodes,
-                "distances": distances,
-                "name": waypoint.name,
+            # Try BuildingGraph as fallback
+            if not navigation_graph:
+                building_graph = await BuildingGraph.find_one(BuildingGraph.building_id == ObjectId(building_id))
+                if building_graph and building_graph.nodes:
+                    navigation_graph = {
+                        "type": "building_graph",
+                        "nodes": [n.dict() if hasattr(n, 'dict') else n for n in building_graph.nodes],
+                    }
+                    navigation_nodes = navigation_graph["nodes"]
+        except Exception as e:
+            print(f"⚠️ Could not load navigation graph: {e}")
+        
+        # Convert waypoints to navigation nodes if no graph exists
+        if not navigation_nodes and waypoints:
+            print(f"📍 Converting {len(waypoints)} waypoints to navigation nodes")
+            for idx, waypoint in enumerate(waypoints):
+                # Create navigation node with connections
+                connected_nodes = []
+                distances = {}
+                
+                # Connect to nearby waypoints on same floor (within 15 meters)
+                for other_idx, other_waypoint in enumerate(waypoints):
+                    if other_idx != idx and waypoint.floor_id == other_waypoint.floor_id:
+                        # Calculate distance
+                        dx = waypoint.latitude - other_waypoint.latitude
+                        dy = waypoint.longitude - other_waypoint.longitude
+                        distance = (dx**2 + dy**2)**0.5 * 111000  # Convert to meters
+                        
+                        if distance < 15:  # Within 15 meters
+                            connected_nodes.append(str(other_waypoint.id))
+                            distances[str(other_waypoint.id)] = distance
+                
+                navigation_nodes.append({
+                    "id": str(waypoint.id),
+                    "label": waypoint.name,
+                    "building_id": building_id,
+                    "floor_id": str(waypoint.floor_id),
+                    "x": waypoint.latitude,
+                    "y": waypoint.longitude,
+                    "z": waypoint.floor_number,
+                    "type": waypoint.waypoint_type or "corridor",
+                    "node_type": waypoint.waypoint_type or "waypoint",
+                    "connected_node_ids": connected_nodes,
+                    "neighbors": connected_nodes,
+                    "distances": distances,
+                    "name": waypoint.name,
+                    "image_url": waypoint.images[0] if waypoint.images else None,
+                    "qr_code": f"indoor-nav://{building_id}/{waypoint.id}",
+                    "is_accessible": True,
+                    "category": None,
+                })
+        
+        # Get all available locations (for smart navigation)
+        locations = []
+        for node in navigation_nodes:
+            locations.append({
+                "id": node.get("id"),
+                "name": node.get("label") or node.get("name"),
+                "node_type": node.get("node_type") or node.get("type"),
+                "floor_number": int(node.get("z", 0)),
+                "latitude": float(node.get("x", 0)),
+                "longitude": float(node.get("y", 0)),
+                "image_url": node.get("image_url"),
+                "neighbors": node.get("neighbors", []),
+                "category": node.get("category"),
             })
+        
+        # Get available categories
+        categories = list(set(
+            node.get("category") 
+            for node in navigation_nodes 
+            if node.get("category")
+        ))
         
         # Prepare response
         response = {
@@ -122,7 +210,7 @@ async def download_building_for_offline(
                     "y": room.coordinates.get("lng", 0),
                     "width": room.coordinates.get("width", 5.0),
                     "height": room.coordinates.get("length", 4.0),
-                    "entrance_node_id": None,  # Will be set during navigation graph creation
+                    "entrance_node_id": None,
                 }
                 for room in rooms
             ],
@@ -140,18 +228,29 @@ async def download_building_for_offline(
                 }
                 for marker in markers
             ],
+            "navigation_graph": navigation_graph,
+            "shortest_paths": shortest_paths,
+            "locations": locations,
+            "categories": categories,
             "metadata": {
                 "total_floors": len(floors),
                 "total_rooms": len(rooms),
                 "total_waypoints": len(waypoints),
                 "total_markers": len(markers),
-                "download_timestamp": building.created_at.isoformat(),
+                "total_navigation_nodes": len(navigation_nodes),
+                "has_navigation_graph": navigation_graph is not None,
+                "has_shortest_paths": len(shortest_paths) > 0,
+                "available_categories": len(categories),
+                "download_timestamp": datetime.utcnow().isoformat(),
             }
         }
         
         return response
         
     except Exception as e:
+        print(f"❌ Error downloading building data: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error downloading building data: {str(e)}")
 
 
@@ -175,28 +274,52 @@ async def get_available_buildings_for_offline(
             total_waypoints = 0
             total_markers = 0
             
-            for floor in floors:
-                rooms = await Room.find(Room.floor_id == floor.id).to_list()
-                waypoints = await Waypoint.find(Waypoint.floor_id == floor.id).to_list()
-                markers = await ARMarker.find(ARMarker.floor_id == floor.id).to_list()
-                
-                total_rooms += len(rooms)
-                total_waypoints += len(waypoints)
-                total_markers += len(markers)
+            # CRITICAL FIX: Check IndoorGraph first for navigation nodes
+            try:
+                from models import IndoorGraph
+                indoor_graph = await IndoorGraph.find_one(IndoorGraph.building_id == building.id)
+                if indoor_graph and indoor_graph.nodes:
+                    total_waypoints = len(indoor_graph.nodes)
+                    print(f"✅ Building {building.name}: Found {total_waypoints} nodes in IndoorGraph")
+            except Exception as e:
+                print(f"⚠️ Could not check IndoorGraph for {building.name}: {e}")
             
-            # Estimate download size (rough estimate)
+            # Fallback to Waypoint table if no IndoorGraph
+            if total_waypoints == 0:
+                for floor in floors:
+                    rooms = await Room.find(Room.floor_id == floor.id).to_list()
+                    waypoints = await Waypoint.find(Waypoint.floor_id == floor.id).to_list()
+                    markers = await ARMarker.find(ARMarker.floor_id == floor.id).to_list()
+                    
+                    total_rooms += len(rooms)
+                    total_waypoints += len(waypoints)
+                    total_markers += len(markers)
+            else:
+                # Still count rooms and markers from floors
+                for floor in floors:
+                    rooms = await Room.find(Room.floor_id == floor.id).to_list()
+                    markers = await ARMarker.find(ARMarker.floor_id == floor.id).to_list()
+                    
+                    total_rooms += len(rooms)
+                    total_markers += len(markers)
+            
+            # Estimate download size (rough estimate in KB)
             estimated_size_kb = (
                 len(floors) * 2 +  # Floor data
                 total_rooms * 1 +  # Room data
-                total_waypoints * 1 +  # Waypoint data
+                total_waypoints * 1 +  # Waypoint/Node data
                 total_markers * 2  # Marker data
             )
+            
+            # Ensure minimum size display
+            if estimated_size_kb == 0 and (len(floors) > 0 or total_rooms > 0):
+                estimated_size_kb = 5  # Minimum 5KB for buildings with data
             
             result.append({
                 "id": str(building.id),
                 "name": building.name,
-                "address": building.address,
-                "description": building.description,
+                "address": building.address or "No address",
+                "description": building.description or "",
                 "floors_count": len(floors),
                 "rooms_count": total_rooms,
                 "waypoints_count": total_waypoints,
@@ -204,11 +327,15 @@ async def get_available_buildings_for_offline(
                 "estimated_size_kb": estimated_size_kb,
                 "version": getattr(building, 'version', 1),
                 "is_ready_for_offline": total_waypoints > 0,  # Has navigation data
+                "created_at": building.created_at.isoformat() if hasattr(building, 'created_at') else None,
+                "latitude": building.latitude if hasattr(building, 'latitude') else None,
+                "longitude": building.longitude if hasattr(building, 'longitude') else None,
             })
         
         return result
         
     except Exception as e:
+        print(f"❌ Error fetching buildings for offline: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching buildings: {str(e)}")
 
 
@@ -377,3 +504,85 @@ async def sync_batch_offline_data(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch sync failed: {str(e)}")
+
+
+@router.get("/buildings/{building_id}/debug")
+async def debug_building_data(
+    building_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Debug endpoint to check building data completeness.
+    Returns detailed information about what data exists.
+    """
+    try:
+        building = await Building.get(building_id)
+        if not building:
+            raise HTTPException(status_code=404, detail="Building not found")
+        
+        floors = await Floor.find(Floor.building_id == ObjectId(building_id)).to_list()
+        
+        floor_details = []
+        total_waypoints = 0
+        total_rooms = 0
+        total_markers = 0
+        
+        for floor in floors:
+            waypoints = await Waypoint.find(Waypoint.floor_id == floor.id).to_list()
+            rooms = await Room.find(Room.floor_id == floor.id).to_list()
+            markers = await ARMarker.find(ARMarker.floor_id == floor.id).to_list()
+            
+            total_waypoints += len(waypoints)
+            total_rooms += len(rooms)
+            total_markers += len(markers)
+            
+            floor_details.append({
+                "floor_id": str(floor.id),
+                "floor_number": floor.floor_number,
+                "floor_name": floor.name,
+                "waypoints_count": len(waypoints),
+                "rooms_count": len(rooms),
+                "markers_count": len(markers),
+                "waypoints": [
+                    {
+                        "id": str(wp.id),
+                        "name": wp.name,
+                        "type": wp.waypoint_type,
+                        "lat": wp.latitude,
+                        "lng": wp.longitude,
+                    }
+                    for wp in waypoints[:5]  # Show first 5
+                ] if waypoints else [],
+            })
+        
+        return {
+            "building": {
+                "id": str(building.id),
+                "name": building.name,
+                "address": building.address,
+                "version": getattr(building, 'version', 1),
+            },
+            "summary": {
+                "total_floors": len(floors),
+                "total_waypoints": total_waypoints,
+                "total_rooms": total_rooms,
+                "total_markers": total_markers,
+                "is_ready_for_offline": total_waypoints > 0,
+            },
+            "floors": floor_details,
+            "issues": [
+                "No waypoints found - building cannot be downloaded for offline use" if total_waypoints == 0 else None,
+                "No floors found - building structure is incomplete" if len(floors) == 0 else None,
+                "No rooms found - building may not have room data" if total_rooms == 0 else None,
+            ],
+            "recommendations": [
+                "Add waypoints using the coordinate collection page" if total_waypoints == 0 else None,
+                "Add at least 2-5 waypoints per floor for navigation" if total_waypoints < len(floors) * 2 else None,
+                "Ensure waypoints are properly connected (within 15 meters)" if total_waypoints > 0 else None,
+            ],
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Debug failed: {str(e)}")

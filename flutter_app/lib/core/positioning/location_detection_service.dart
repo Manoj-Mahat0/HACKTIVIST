@@ -299,8 +299,8 @@ class LocationDetectionService {
       final gpsWeight = _isStationary() ? 0.8 : 0.3;
       final pdrWeight = 1.0 - gpsWeight;
       
-      _currentX = (_currentX! * gpsWeight) + (pdrPosition['x'] * pdrWeight);
-      _currentY = (_currentY! * gpsWeight) + (pdrPosition['y'] * pdrWeight);
+      _currentX = (_currentX! * gpsWeight) + (pdrPosition.x * pdrWeight);
+      _currentY = (_currentY! * gpsWeight) + (pdrPosition.y * pdrWeight);
       
       // Snap to nearest node if close enough
       _snapToNearestNode();

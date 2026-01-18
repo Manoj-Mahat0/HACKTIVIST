@@ -182,10 +182,12 @@ class BuildingInteractionController extends ChangeNotifier {
 class Building3DPainter extends CustomPainter {
   final Building3D building;
   final BuildingInteractionController controller;
+  final int? selectedFloor;
 
   Building3DPainter({
     required this.building,
     required this.controller,
+    this.selectedFloor,
   }) : super(repaint: controller);
 
   @override
@@ -207,15 +209,34 @@ class Building3DPainter extends CustomPainter {
     // Collect all drawable elements with their Z-depth for sorting
     final List<_DrawableElement> elements = [];
 
+    // Calculate floor height spacing (3.5 units per floor)
+    const floorHeightSpacing = 3.5;
+    
+    // Find the minimum floor number to use as base
+    final minFloor = building.floors.isEmpty 
+        ? 0 
+        : building.floors.map((f) => f.floorNumber).reduce((a, b) => a < b ? a : b);
+
     for (int i = 0; i < building.floors.length; i++) {
       final floor = building.floors[i];
-      final floorHeight = i * 3.5;
+      
+      // Calculate actual floor height based on floor number
+      // This ensures Floor 0 is at a specific height, Floor 1 above it, Floor -1 below it, etc.
+      final floorHeight = (floor.floorNumber - minFloor) * floorHeightSpacing;
+      
       final explodeOffset = controller.isExploded 
           ? i * 15.0 * controller.explodeFactor 
           : 0.0;
 
-      // Add floor slab
-      elements.addAll(_createFloorElements(floor, floorHeight + explodeOffset));
+      // Check if this floor is selected
+      final isThisFloorSelected = selectedFloor != null && floor.floorNumber == selectedFloor;
+      
+      // Add floor slab with selection state
+      elements.addAll(_createFloorElements(
+        floor, 
+        floorHeight + explodeOffset,
+        isThisFloorSelected,
+      ));
 
       // Add rooms
       for (final room in floor.rooms) {
@@ -223,6 +244,7 @@ class Building3DPainter extends CustomPainter {
           room,
           floor,
           floorHeight + explodeOffset,
+          isThisFloorSelected,
         ));
       }
     }
@@ -236,9 +258,12 @@ class Building3DPainter extends CustomPainter {
     }
   }
 
-  List<_DrawableElement> _createFloorElements(Floor3D floor, double baseZ) {
+  List<_DrawableElement> _createFloorElements(
+    Floor3D floor, 
+    double baseZ,
+    bool isSelected,
+  ) {
     final elements = <_DrawableElement>[];
-    final isSelected = controller.selectedFloor == floor.floorNumber;
 
     // Floor corners in 3D space
     final corners = [
@@ -324,7 +349,7 @@ class Building3DPainter extends CustomPainter {
     return elements;
   }
 
-  List<_DrawableElement> _createRoomElements(Room3D room, Floor3D floor, double baseZ) {
+  List<_DrawableElement> _createRoomElements(Room3D room, Floor3D floor, double baseZ, bool isFloorSelected) {
     final elements = <_DrawableElement>[];
     final isSelected = controller.selectedRoom == room.id;
 

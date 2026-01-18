@@ -8,6 +8,7 @@ import '../../../buildings/presentation/bloc/buildings_bloc.dart';
 import '../../../navigation/presentation/bloc/navigation_bloc.dart';
 import '../../../buildings/presentation/pages/modern_buildings_page.dart';
 import '../../../navigation/presentation/pages/unified_navigation_page.dart';
+import '../../../navigation/presentation/pages/intent_navigation_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
 import '../../../offline/presentation/pages/offline_downloads_page.dart';
 
@@ -284,12 +285,19 @@ class _ModernHomePageState extends State<ModernHomePage> with SingleTickerProvid
             children: [
               Expanded(
                 child: _buildQuickActionCard(
-                  icon: Icons.qr_code_scanner,
-                  title: 'Scan QR',
-                  subtitle: 'Quick locate',
-                  color: Colors.blue,
+                  icon: Icons.category,
+                  title: 'Intent Navigation',
+                  subtitle: 'Navigate by category',
+                  color: Colors.deepPurple,
                   onTap: () {
-                    // TODO: Implement QR scan
+                    if (mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const IntentNavigationPage(),
+                        ),
+                      );
+                    }
                   },
                 ),
               ),

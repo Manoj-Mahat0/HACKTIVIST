@@ -67,6 +67,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     Responsive.init(context);
     
     return Scaffold(
+      backgroundColor: const Color(0xFF121212),
       body: BlocBuilder<AuthBloc, AuthState>(
         builder: (context, state) {
           if (state is! AuthenticatedState) {
@@ -92,7 +93,9 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                             title: 'Edit Profile',
                             subtitle: 'Update your information',
                             color: AppColors.primaryOrange,
-                            onTap: () => AppNavigator.push(const EditProfilePage()),
+                            onTap: () {
+                              if (mounted) AppNavigator.push(const EditProfilePage());
+                            },
                           ),
                           if (state.user.isAdmin)
                             _MenuItem(
@@ -100,7 +103,9 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                               title: 'Admin Panel',
                               subtitle: 'Manage buildings & data',
                               color: AppColors.sunsetOrange,
-                              onTap: () => AppNavigator.push(const AdminDashboardPage()),
+                              onTap: () {
+                                if (mounted) AppNavigator.push(const AdminDashboardPage());
+                              },
                             ),
                         ]),
                         SizedBox(height: Responsive.spacing(16)),
@@ -110,14 +115,18 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                             title: 'Send Feedback',
                             subtitle: 'Help us improve',
                             color: Colors.blue,
-                            onTap: () => AppNavigator.push(const FeedbackPage()),
+                            onTap: () {
+                              if (mounted) AppNavigator.push(const FeedbackPage());
+                            },
                           ),
                           _MenuItem(
                             icon: Icons.help_outline_rounded,
                             title: 'FAQ',
                             subtitle: 'Frequently asked questions',
                             color: Colors.green,
-                            onTap: () => AppNavigator.push(const FAQPage()),
+                            onTap: () {
+                              if (mounted) AppNavigator.push(const FAQPage());
+                            },
                           ),
                           _MenuItem(
                             icon: Icons.tour_rounded,
@@ -147,14 +156,18 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                             title: 'Privacy Policy',
                             subtitle: 'How we handle your data',
                             color: Colors.teal,
-                            onTap: () => AppNavigator.push(const PrivacyPolicyPage()),
+                            onTap: () {
+                              if (mounted) AppNavigator.push(const PrivacyPolicyPage());
+                            },
                           ),
                           _MenuItem(
                             icon: Icons.description_outlined,
                             title: 'Terms & Conditions',
                             subtitle: 'Usage terms',
                             color: Colors.indigo,
-                            onTap: () => AppNavigator.push(const TermsConditionsPage()),
+                            onTap: () {
+                              if (mounted) AppNavigator.push(const TermsConditionsPage());
+                            },
                           ),
                         ]),
                         SizedBox(height: Responsive.spacing(24)),
@@ -179,13 +192,13 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
       expandedHeight: Responsive.height(35),
       pinned: true,
       stretch: true,
-      backgroundColor: AppColors.primaryOrange,
+      backgroundColor: const Color(0xFF1E1E1E),
       leading: AnimatedScaleButton(
         onTap: () => AppNavigator.pop(),
         child: Container(
           margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
+            color: Colors.white.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
@@ -193,7 +206,17 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
       ),
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
-          decoration: const BoxDecoration(gradient: AppGradients.primaryGradient),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0xFF1E1E1E),
+                const Color(0xFF2D2D2D),
+                AppColors.primaryOrange.withOpacity(0.3),
+              ],
+            ),
+          ),
           child: SafeArea(
             child: ScaleTransition(
               scale: _headerScale,
@@ -224,9 +247,9 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: AppColors.primaryOrange.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withOpacity(0.3)),
+                        border: Border.all(color: AppColors.primaryOrange.withOpacity(0.5)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -261,10 +284,11 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
           height: 100,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.white,
+            color: const Color(0xFF2D2D2D),
+            border: Border.all(color: AppColors.primaryOrange, width: 3),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.2),
+                color: AppColors.primaryOrange.withOpacity(0.3),
                 blurRadius: 20,
                 offset: const Offset(0, 10),
               ),
@@ -285,7 +309,9 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
           bottom: 0,
           right: 0,
           child: AnimatedScaleButton(
-            onTap: () => AppNavigator.push(const EditProfilePage()),
+            onTap: () {
+              if (mounted) AppNavigator.push(const EditProfilePage());
+            },
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -303,7 +329,12 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
 
   Widget _buildQuickStats(AuthenticatedState state) {
     return AnimatedCard(
-      gradient: AppGradients.cardGradient,
+      gradient: LinearGradient(
+        colors: [
+          const Color(0xFF1E1E1E),
+          const Color(0xFF2D2D2D),
+        ],
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
@@ -312,7 +343,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
             value: _formatDate(state.user.createdAt),
             label: 'Member Since',
           ),
-          Container(width: 1, height: 40, color: AppColors.primaryOrange.withOpacity(0.2)),
+          Container(width: 1, height: 40, color: AppColors.primaryOrange.withOpacity(0.3)),
           _StatItem(
             icon: Icons.badge_rounded,
             value: state.user.isAdmin ? 'Admin' : 'User',
@@ -334,7 +365,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
             style: TextStyle(
               fontSize: Responsive.fontSize(18),
               fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
+              color: Colors.white,
             ),
           ),
         ),
@@ -352,12 +383,18 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     return AnimatedCard(
       margin: const EdgeInsets.only(bottom: 8),
       onTap: item.onTap,
+      gradient: LinearGradient(
+        colors: [
+          const Color(0xFF1E1E1E),
+          const Color(0xFF2D2D2D),
+        ],
+      ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: item.color.withOpacity(0.1),
+              color: item.color.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(item.icon, color: item.color, size: 24),
@@ -372,22 +409,22 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                   style: TextStyle(
                     fontSize: Responsive.fontSize(16),
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: Colors.white,
                   ),
                 ),
                 Text(
                   item.subtitle,
                   style: TextStyle(
                     fontSize: Responsive.fontSize(12),
-                    color: AppColors.textSecondary,
+                    color: Colors.white70,
                   ),
                 ),
               ],
             ),
           ),
-          const Icon(
+          Icon(
             Icons.arrow_forward_ios_rounded,
-            color: AppColors.textSecondary,
+            color: Colors.white54,
             size: 16,
           ),
         ],
@@ -402,9 +439,9 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
         width: double.infinity,
         padding: Responsive.padding(vertical: 16),
         decoration: BoxDecoration(
-          color: AppColors.error.withOpacity(0.1),
+          color: AppColors.error.withOpacity(0.2),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.error.withOpacity(0.3)),
+          border: Border.all(color: AppColors.error.withOpacity(0.5)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -426,47 +463,27 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
   }
 
   Widget _buildAppVersion() {
-<<<<<<< HEAD
-    return Column(
-      children: [
-        const Icon(Icons.navigation_rounded, color: AppColors.primaryOrange, size: 32),
-        const SizedBox(height: 8),
-        Text(
-          'Indoor Navigation',
-          style: TextStyle(
-            fontSize: Responsive.fontSize(14),
-            fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        Text(
-          'Version 1.0.0',
-          style: TextStyle(
-            fontSize: Responsive.fontSize(12),
-            color: AppColors.textSecondary.withOpacity(0.7),
-=======
-    return const Center(
+    return Center(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(Icons.explore, color: AppColors.primaryOrange, size: 32),
-          SizedBox(height: 8),
+          const Icon(Icons.explore, color: AppColors.primaryOrange, size: 32),
+          const SizedBox(height: 8),
           Text(
             'CITIAN',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
+              color: Colors.white70,
             ),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
             'Version 1.0.0',
             style: TextStyle(
               fontSize: 12,
-              color: AppColors.textSecondary,
+              color: Colors.white54,
             ),
->>>>>>> 969f15b (Add proximity detection system and update admin dashboard)
           ),
         ],
       ),
@@ -477,26 +494,27 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2D2D2D),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: AppColors.error.withOpacity(0.1),
+                color: AppColors.error.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Icon(Icons.logout_rounded, color: AppColors.error),
             ),
             const SizedBox(width: 12),
-            const Text('Sign Out'),
+            const Text('Sign Out', style: TextStyle(color: Colors.white)),
           ],
         ),
-        content: const Text('Are you sure you want to sign out?'),
+        content: const Text('Are you sure you want to sign out?', style: TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -557,14 +575,14 @@ class _StatItem extends StatelessWidget {
           style: TextStyle(
             fontSize: Responsive.fontSize(16),
             fontWeight: FontWeight.bold,
-            color: AppColors.textPrimary,
+            color: Colors.white,
           ),
         ),
         Text(
           label,
           style: TextStyle(
             fontSize: Responsive.fontSize(12),
-            color: AppColors.textSecondary,
+            color: Colors.white70,
           ),
         ),
       ],

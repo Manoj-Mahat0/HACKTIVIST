@@ -3,7 +3,7 @@ from typing import List, Dict
 import math
 from bson import ObjectId
 
-from models import Building, Floor, Room, Waypoint, NavigationPath, ARMarker, BuildingGraph
+from models import Building, Floor, Room, Waypoint, NavigationPath, ARMarker, BuildingGraph, IndoorGraph
 from schemas import NavigationRequest, NavigationResponse
 from auth_utils import get_current_user
 
@@ -78,13 +78,48 @@ async def get_building_locations(building_id: str):
         
         locations = []
         
-        # Get from navigation graph first (preferred)
+        # Get from IndoorGraph first (preferred - has category support)
+        try:
+            indoor_graph = await IndoorGraph.find_one(IndoorGraph.building_id == ObjectId(building_id))
+            print(f"📊 IndoorGraph found: {indoor_graph is not None}")
+            
+            if indoor_graph and indoor_graph.nodes:
+                print(f"📍 Processing {len(indoor_graph.nodes)} nodes from IndoorGraph")
+                
+                for i, node in enumerate(indoor_graph.nodes):
+                    try:
+                        node_data = node if isinstance(node, dict) else (node.dict() if hasattr(node, 'dict') else node.model_dump())
+                        location = {
+                            "id": node_data.get("id", ""),
+                            "name": node_data.get("label") or node_data.get("name") or f"Node {node_data.get('id', '')}",
+                            "node_type": node_data.get("node_type", "waypoint"),
+                            "floor_number": int(node_data.get("floor_number", 0)),
+                            "latitude": float(node_data.get("latitude", 0)),
+                            "longitude": float(node_data.get("longitude", 0)),
+                            "image_url": node_data.get("image_url"),
+                            "landmark_description": node_data.get("landmark_description"),
+                            "neighbors": [e.get("to_node_id") for e in node_data.get("edges", [])],
+                            "category": node_data.get("category"),
+                        }
+                        locations.append(location)
+                        print(f"✅ Node {i+1}: {location['name']} ({location['node_type']}) - Category: {location.get('category', 'None')}")
+                    except Exception as e:
+                        print(f"❌ Error processing node {i+1}: {e}")
+                        continue
+                
+                if locations:
+                    print(f"🎉 Returning {len(locations)} locations from IndoorGraph")
+                    return {"locations": locations}
+        except Exception as e:
+            print(f"❌ Error accessing IndoorGraph: {e}")
+        
+        # Fallback to BuildingGraph
         try:
             graph = await BuildingGraph.find_one(BuildingGraph.building_id == ObjectId(building_id))
-            print(f"📊 Navigation graph found: {graph is not None}")
+            print(f"📊 BuildingGraph found: {graph is not None}")
             
             if graph and graph.nodes:
-                print(f"📍 Processing {len(graph.nodes)} nodes from navigation graph")
+                print(f"📍 Processing {len(graph.nodes)} nodes from BuildingGraph")
                 
                 for i, node in enumerate(graph.nodes):
                     try:
@@ -107,10 +142,10 @@ async def get_building_locations(building_id: str):
                         continue
                 
                 if locations:
-                    print(f"🎉 Returning {len(locations)} locations from navigation graph")
-                    return locations
+                    print(f"🎉 Returning {len(locations)} locations from BuildingGraph")
+                    return {"locations": locations}
         except Exception as e:
-            print(f"❌ Error accessing navigation graph: {e}")
+            print(f"❌ Error accessing BuildingGraph: {e}")
         
         # Fallback to waypoints and rooms
         print("📋 Falling back to waypoints and rooms...")
@@ -191,7 +226,7 @@ async def get_building_locations(building_id: str):
             ]
         
         print(f"📤 Final response: {len(locations)} locations")
-        return locations
+        return {"locations": locations}
         
     except HTTPException:
         raise

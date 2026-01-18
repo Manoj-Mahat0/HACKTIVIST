@@ -56,7 +56,8 @@ import 'package:indoor_navigation/features/ar_navigation/presentation/bloc/ar_na
 import 'package:indoor_navigation/features/ar_navigation/presentation/bloc/ar_guidance_bloc.dart';
 
 // Services
-import 'package:indoor_navigation/features/navigation/presentation/services/audio_feedback_service.dart';
+import 'package:indoor_navigation/features/navigation/presentation/services/audio_feedback_service.dart' as nav_audio;
+import 'package:indoor_navigation/features/ar_navigation/data/services/audio_feedback_service.dart' as ar_audio;
 import 'package:indoor_navigation/features/navigation/presentation/services/smart_audio_guidance_service.dart';
 
 final getIt = GetIt.instance;
@@ -208,11 +209,11 @@ Future<void> initializeDependencies() async {
   getIt.registerLazySingleton(() => ArNavigationBloc(repository: getIt<ArNavigationRepository>()));
   
   // AR Guidance Services
-  getIt.registerSingleton<AudioFeedbackService>(AudioFeedbackService());
+  getIt.registerSingleton<ar_audio.AudioFeedbackService>(ar_audio.AudioFeedbackService());
   getIt.registerLazySingleton<SmartAudioGuidanceService>(
-    () => SmartAudioGuidanceService(getIt<AudioFeedbackService>()),
+    () => SmartAudioGuidanceService(nav_audio.AudioFeedbackService()),
   );
   getIt.registerFactory(() => ARGuidanceBloc(
-    getIt<SmartAudioGuidanceService>(),
+    audioService: getIt<ar_audio.AudioFeedbackService>(),
   ));
 }

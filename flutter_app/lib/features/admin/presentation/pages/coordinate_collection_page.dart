@@ -204,6 +204,56 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
               ),
             ),
           ),
+          // 2D/3D Toggle Button
+          if (_selectedBuilding != null)
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _is3DView = !_is3DView;
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      _is3DView ? 'Switched to 3D View' : 'Switched to 2D View',
+                    ),
+                    duration: const Duration(seconds: 1),
+                    behavior: SnackBarBehavior.floating,
+                    backgroundColor: _is3DView ? AppColors.primaryOrange : Colors.grey.shade800,
+                  ),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _is3DView ? AppColors.primaryOrange : Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: _is3DView ? AppColors.primaryOrange : Colors.white.withOpacity(0.5),
+                    width: 2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _is3DView ? Icons.view_in_ar : Icons.map,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _is3DView ? '3D' : '2D',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(width: 8),
           if (_nodes.isNotEmpty)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -629,68 +679,6 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
               ),
             ),
             
-            // 2D/3D Toggle Button
-            Positioned(
-              top: 16,
-              right: 16,
-              child: GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _is3DView = !_is3DView;
-                  });
-                  // Show feedback
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        _is3DView ? 'Switched to 3D View' : 'Switched to 2D View',
-                      ),
-                      duration: const Duration(seconds: 1),
-                      behavior: SnackBarBehavior.floating,
-                      backgroundColor: _is3DView ? AppColors.primaryOrange : Colors.grey.shade800,
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: _is3DView ? AppColors.primaryOrange : Colors.black87,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _is3DView ? AppColors.primaryOrange : Colors.white24,
-                      width: 2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: (_is3DView ? AppColors.primaryOrange : Colors.black)
-                            .withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _is3DView ? Icons.view_in_ar : Icons.map,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _is3DView ? '3D' : '2D',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            
             // Nodes visualization
             if (floorNodes.isEmpty)
               Center(
@@ -715,10 +703,10 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
                   ),
                 ),
               )
-          else
-            _is3DView ? _build3DFloorView(floorNodes) : _build2DFloorView(floorNodes),
-        ],
-      ),
+            else
+              _is3DView ? _build3DFloorView(floorNodes) : _build2DFloorView(floorNodes),
+          ],
+        ),
       ),
     );
   }
@@ -755,8 +743,11 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
   Widget _build3DFloorView(List<IndoorNode> floorNodes) {
     if (_3dController == null) return const SizedBox.shrink();
     
-    // Show message if no nodes
-    if (floorNodes.isEmpty) {
+    // Get all nodes from all floors
+    final allFloorNodes = _nodes;
+    
+    // Show message if no nodes at all
+    if (allFloorNodes.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -768,7 +759,7 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
             ),
             const SizedBox(height: 16),
             const Text(
-              '3D View',
+              '3D Building View',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 20,
@@ -788,36 +779,60 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
       );
     }
     
-    // Convert nodes to rooms for 3D visualization
-    final rooms3D = floorNodes.asMap().entries.map((entry) {
-      final index = entry.key;
-      final node = entry.value;
-      
-      // Calculate position in a grid layout
-      final gridSize = math.sqrt(floorNodes.length.toDouble()).ceil();
-      final row = index ~/ gridSize;
-      final col = index % gridSize;
-      
-      return Room3D(
-        id: node.id,
-        name: node.label,
-        type: _getNodeRoomType(node.nodeType),
-        x: 0.1 + (col * 0.8 / gridSize),
-        y: 0.1 + (row * 0.8 / gridSize),
-        width: 0.7 / gridSize,
-        depth: 0.7 / gridSize,
-        height: 2.5,
+    // Group nodes by floor
+    final nodesByFloor = <int, List<IndoorNode>>{};
+    for (final node in allFloorNodes) {
+      nodesByFloor.putIfAbsent(node.floorNumber, () => []).add(node);
+    }
+    
+    // Get floor range
+    final floorNumbers = nodesByFloor.keys.toList()..sort();
+    if (floorNumbers.isEmpty) {
+      return Center(
+        child: Text(
+          'No nodes available',
+          style: TextStyle(color: Colors.white.withOpacity(0.7)),
+        ),
       );
-    }).toList();
-
-    final floor3D = Floor3D(
-      floorNumber: _currentFloor,
-      rooms: rooms3D,
-    );
+    }
+    
+    // Create 3D floors for all floors with nodes
+    final floors3D = <Floor3D>[];
+    
+    for (final floorNum in floorNumbers) {
+      final nodesOnFloor = nodesByFloor[floorNum]!;
+      
+      // Convert nodes to rooms for this floor
+      final rooms3D = nodesOnFloor.asMap().entries.map((entry) {
+        final index = entry.key;
+        final node = entry.value;
+        
+        // Calculate position in a grid layout
+        final gridSize = math.sqrt(nodesOnFloor.length.toDouble()).ceil();
+        final row = index ~/ gridSize;
+        final col = index % gridSize;
+        
+        return Room3D(
+          id: node.id,
+          name: node.label,
+          type: _getNodeRoomType(node.nodeType),
+          x: 0.1 + (col * 0.8 / gridSize),
+          y: 0.1 + (row * 0.8 / gridSize),
+          width: 0.7 / gridSize,
+          depth: 0.7 / gridSize,
+          height: 2.5,
+        );
+      }).toList();
+      
+      floors3D.add(Floor3D(
+        floorNumber: floorNum,
+        rooms: rooms3D,
+      ));
+    }
 
     final building3D = Building3D(
       name: _selectedBuilding?.name ?? 'Building',
-      floors: [floor3D],
+      floors: floors3D,
     );
 
     return GestureDetector(
@@ -846,6 +861,7 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
                 painter: Building3DPainter(
                   building: building3D,
                   controller: _3dController!,
+                  selectedFloor: _currentFloor,
                 ),
                 size: Size.infinite,
               );
@@ -857,6 +873,52 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
             right: 16,
             top: 60,
             child: _build3DControls(),
+          ),
+          
+          // Floor info overlay
+          Positioned(
+            left: 16,
+            top: 60,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.layers,
+                        color: AppColors.primaryOrange,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${floors3D.length} Floors',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Selected: Floor $_currentFloor',
+                    style: TextStyle(
+                      color: AppColors.primaryOrange,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
           
           // Instructions overlay
@@ -1551,6 +1613,11 @@ class _CoordinateCollectionPageState extends State<CoordinateCollectionPage>
                         DropdownMenuItem(value: 'office', child: Row(children: [Icon(Icons.work, size: 16, color: Colors.blueGrey), SizedBox(width: 8), Text('Office')])),
                         DropdownMenuItem(value: 'parking', child: Row(children: [Icon(Icons.local_parking, size: 16, color: Colors.grey), SizedBox(width: 8), Text('Parking')])),
                         DropdownMenuItem(value: 'amenities', child: Row(children: [Icon(Icons.local_convenience_store, size: 16, color: Colors.teal), SizedBox(width: 8), Text('Amenities')])),
+                                                DropdownMenuItem(value: 'academics', child: Row(children: [Icon(Icons.school, size: 16, color: Colors.deepPurple), SizedBox(width: 8), Text('Academics & Admin')])),
+                                                DropdownMenuItem(value: 'exams', child: Row(children: [Icon(Icons.assignment, size: 16, color: Colors.redAccent), SizedBox(width: 8), Text('Exams & Classes')])),
+                                                DropdownMenuItem(value: 'facilities', child: Row(children: [Icon(Icons.apartment, size: 16, color: Colors.lightBlue), SizedBox(width: 8), Text('Campus Facilities')])),
+                                                DropdownMenuItem(value: 'hostels', child: Row(children: [Icon(Icons.house, size: 16, color: Colors.orangeAccent), SizedBox(width: 8), Text('Hostels')])),
+                                                DropdownMenuItem(value: 'emergency', child: Row(children: [Icon(Icons.emergency, size: 16, color: Colors.red), SizedBox(width: 8), Text('Emergency')]))
                       ],
                       onChanged: (value) => setSheetState(() => category = value),
                     ),

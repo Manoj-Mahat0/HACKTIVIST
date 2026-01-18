@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/offline_bloc.dart';
+import 'offline_map_viewer_page.dart';
 
 class OfflineDownloadsPage extends StatefulWidget {
   const OfflineDownloadsPage({super.key});
@@ -180,6 +181,7 @@ class _OfflineDownloadsPageState extends State<OfflineDownloadsPage>
   Widget _buildAvailableBuildingCard(Map<String, dynamic> building) {
     final isReady = building['is_ready_for_offline'] ?? false;
     final sizeKb = building['estimated_size_kb'] ?? 0;
+    final waypointsCount = building['waypoints_count'] ?? 0;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -220,38 +222,98 @@ class _OfflineDownloadsPageState extends State<OfflineDownloadsPage>
               ],
             ),
             const SizedBox(height: 12),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 _buildInfoChip(Icons.layers, '${building['floors_count']} floors'),
-                const SizedBox(width: 8),
                 _buildInfoChip(Icons.room, '${building['rooms_count']} rooms'),
-                const SizedBox(width: 8),
-                _buildInfoChip(Icons.navigation, '${building['waypoints_count']} points'),
+                _buildInfoChip(
+                  Icons.navigation, 
+                  '$waypointsCount points',
+                  color: waypointsCount == 0 ? Colors.red : Colors.blue,
+                ),
               ],
             ),
+            if (!isReady && waypointsCount == 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange[200]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This building has no navigation waypoints. Please add waypoints in the admin panel first.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange[900],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Size: ~${sizeKb}KB',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-                ElevatedButton.icon(
-                  onPressed: isReady
-                      ? () {
-                          context.read<OfflineBloc>().add(
-                                DownloadBuildingEvent(
-                                  building['id'],
-                                  building['name'],
-                                ),
-                              );
-                        }
-                      : null,
-                  icon: const Icon(Icons.download, size: 18),
-                  label: const Text('Download'),
-                ),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final showText = constraints.maxWidth > 350;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Size: ~${sizeKb}KB',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    if (showText)
+                      ElevatedButton.icon(
+                        onPressed: isReady
+                            ? () {
+                                context.read<OfflineBloc>().add(
+                                      DownloadBuildingEvent(
+                                        building['id'],
+                                        building['name'],
+                                      ),
+                                    );
+                              }
+                            : null,
+                        icon: const Icon(Icons.download, size: 18),
+                        label: Text(isReady ? 'Download' : 'Not Ready'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isReady ? null : Colors.grey,
+                        ),
+                      )
+                    else
+                      ElevatedButton(
+                        onPressed: isReady
+                            ? () {
+                                context.read<OfflineBloc>().add(
+                                      DownloadBuildingEvent(
+                                        building['id'],
+                                        building['name'],
+                                      ),
+                                    );
+                              }
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isReady ? null : Colors.grey,
+                          padding: const EdgeInsets.all(12),
+                        ),
+                        child: Icon(
+                          isReady ? Icons.download : Icons.block,
+                          size: 20,
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -317,25 +379,93 @@ class _OfflineDownloadsPageState extends State<OfflineDownloadsPage>
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  onPressed: () {
-                    _showDeleteConfirmation(building.id, building.name);
-                  },
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  label: const Text('Delete', style: TextStyle(color: Colors.red)),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context, building.id);
-                  },
-                  icon: const Icon(Icons.navigation),
-                  label: const Text('Navigate'),
-                ),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final showText = constraints.maxWidth > 400;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (showText)
+                      TextButton.icon(
+                        onPressed: () {
+                          _showDeleteConfirmation(building.id, building.name);
+                        },
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        label: const Text('Delete', style: TextStyle(color: Colors.red)),
+                      )
+                    else
+                      IconButton(
+                        onPressed: () {
+                          _showDeleteConfirmation(building.id, building.name);
+                        },
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        tooltip: 'Delete',
+                      ),
+                    const SizedBox(width: 8),
+                    if (showText)
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          if (mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => OfflineMapViewerPage(
+                                  buildingId: building.id,
+                                  buildingName: building.name,
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.map),
+                        label: const Text('View Map'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                        ),
+                      )
+                    else
+                      ElevatedButton(
+                        onPressed: () {
+                          if (mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => OfflineMapViewerPage(
+                                  buildingId: building.id,
+                                  buildingName: building.name,
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          padding: const EdgeInsets.all(12),
+                        ),
+                        child: const Icon(Icons.map),
+                      ),
+                    const SizedBox(width: 8),
+                    if (showText)
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context, building.id);
+                        },
+                        icon: const Icon(Icons.navigation),
+                        label: const Text('Navigate'),
+                      )
+                    else
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context, building.id);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.all(12),
+                        ),
+                        child: const Icon(Icons.navigation),
+                      ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -343,21 +473,22 @@ class _OfflineDownloadsPageState extends State<OfflineDownloadsPage>
     );
   }
 
-  Widget _buildInfoChip(IconData icon, String label) {
+  Widget _buildInfoChip(IconData icon, String label, {Color? color}) {
+    final chipColor = color ?? Colors.blue;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.blue[50],
+        color: chipColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.blue[700]),
+          Icon(icon, size: 14, color: chipColor),
           const SizedBox(width: 4),
           Text(
             label,
-            style: TextStyle(fontSize: 12, color: Colors.blue[700]),
+            style: TextStyle(fontSize: 12, color: chipColor),
           ),
         ],
       ),

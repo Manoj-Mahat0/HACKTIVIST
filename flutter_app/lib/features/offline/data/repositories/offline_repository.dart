@@ -124,11 +124,19 @@ class OfflineRepository {
       // Check current version
       final existingBuilding = await _database.getBuilding(buildingId);
       final currentVersion = existingBuilding?.version ?? 0;
+      
+      // Check if we have navigation nodes - if not, force re-download
+      final existingNodes = await _database.getNavigationNodes(buildingId);
+      final forceDownload = existingNodes.isEmpty && existingBuilding != null;
+      
+      if (forceDownload) {
+        print('⚠️ Building exists but has no navigation nodes - forcing re-download');
+      }
 
       // Download building data
       final response = await _apiClient.dio.get(
         '/offline/buildings/$buildingId/download',
-        queryParameters: {'client_version': currentVersion},
+        queryParameters: {'client_version': forceDownload ? 0 : currentVersion},
         onReceiveProgress: (received, total) {
           if (total != -1 && onProgress != null) {
             onProgress(received / total);
@@ -141,67 +149,73 @@ class OfflineRepository {
       // Check if not modified
       if (data is Map && data['status'] == 'not_modified') {
         print('Building $buildingId is up to date (Version ${data['version']})');
+        
+        // If we have no nodes, this is a problem - delete and retry
+        if (existingNodes.isEmpty) {
+          print('⚠️ Building marked as up-to-date but has no nodes - deleting and retrying');
+          await _database.deleteBuilding(buildingId);
+          // Retry with version 0
+          return downloadBuilding(buildingId, onProgress: onProgress);
+        }
         return;
       }
 
       // Save building
       final building = Building(
-        id: data['building']['id'],
-        name: data['building']['name'],
-        address: data['building']['address'],
+        id: data['building']['id'] ?? buildingId,
+        name: data['building']['name'] ?? 'Unknown Building',
+        address: data['building']['address'] ?? '',
         downloadedAt: data['building']['downloaded_at'] != null 
             ? DateTime.parse(data['building']['downloaded_at'])
             : DateTime.now(),
-        version: data['building']['version'],
+        version: data['building']['version'] ?? 1,
       );
       await _database.saveBuilding(building);
 
       // Save floors
-      for (final floorData in data['floors']) {
+      for (final floorData in data['floors'] ?? []) {
         final floor = Floor(
-          id: floorData['id'],
-          buildingId: floorData['building_id'],
-          floorNumber: floorData['floor_number'],
-          name: floorData['name'],
-          width: floorData['width'].toDouble(),
-          height: floorData['height'].toDouble(),
-          originX: floorData['origin_x'].toDouble(),
-          originY: floorData['origin_y'].toDouble(),
+          id: floorData['id'] ?? '',
+          buildingId: floorData['building_id'] ?? buildingId,
+          floorNumber: floorData['floor_number'] ?? 0,
+          name: floorData['name'] ?? 'Floor ${floorData['floor_number'] ?? 0}',
+          width: (floorData['width'] ?? 100).toDouble(),
+          height: (floorData['height'] ?? 100).toDouble(),
+          originX: (floorData['origin_x'] ?? 0).toDouble(),
+          originY: (floorData['origin_y'] ?? 0).toDouble(),
         );
         await _database.saveFloor(floor);
       }
 
       // Save rooms
-      for (final roomData in data['rooms']) {
+      for (final roomData in data['rooms'] ?? []) {
         final room = Room(
-          id: roomData['id'],
-          floorId: roomData['floor_id'],
-          buildingId: roomData['building_id'],
-          name: roomData['name'],
-          type: roomData['type'],
-          x: roomData['x'].toDouble(),
-          y: roomData['y'].toDouble(),
-          width: roomData['width'].toDouble(),
-          height: roomData['height'].toDouble(),
+          id: roomData['id'] ?? '',
+          floorId: roomData['floor_id'] ?? '',
+          buildingId: roomData['building_id'] ?? buildingId,
+          name: roomData['name'] ?? 'Unnamed Room',
+          type: roomData['type'] ?? 'room',
+          x: (roomData['x'] ?? 0).toDouble(),
+          y: (roomData['y'] ?? 0).toDouble(),
+          width: (roomData['width'] ?? 10).toDouble(),
+          height: (roomData['height'] ?? 10).toDouble(),
           entranceNodeId: roomData['entrance_node_id'],
         );
         await _database.saveRoom(room);
       }
 
-      // Save navigation nodes
+      // Save navigation nodes (enhanced with new data)
       for (final nodeData in data['navigation_nodes']) {
         final node = NavigationNode(
-          id: nodeData['id'],
-          buildingId: nodeData['building_id'],
-          floorId: nodeData['floor_id'],
-          x: nodeData['x'].toDouble(),
-          y: nodeData['y'].toDouble(),
-          typeIndex: _parseNodeType(nodeData['type']).index,
-          connectedNodeIds: List<String>.from(nodeData['connected_node_ids']),
-          distances: Map<String, double>.from(
-            nodeData['distances'].map((k, v) => MapEntry(k, v.toDouble())),
-          ),
-          name: nodeData['name'],
+          id: nodeData['id'] ?? '',
+          buildingId: nodeData['building_id'] ?? buildingId,
+          floorId: nodeData['floor_id'] ?? '',
+          x: (nodeData['x'] ?? nodeData['latitude'] ?? 0).toDouble(),
+          y: (nodeData['y'] ?? nodeData['longitude'] ?? 0).toDouble(),
+          typeIndex: _parseNodeType(nodeData['type'] ?? nodeData['node_type'] ?? 'corridor').index,
+          connectedNodeIds: List<String>.from(nodeData['connected_node_ids'] ?? nodeData['neighbors'] ?? []),
+          distances: _parseDistances(nodeData['distances']),
+          name: nodeData['name'] ?? nodeData['label'] ?? 'Unnamed Node',
         );
         await _database.saveNavigationNode(node);
       }
@@ -209,20 +223,62 @@ class OfflineRepository {
       // Save QR markers
       for (final markerData in data['qr_markers']) {
         final marker = QRMarker(
-          id: markerData['id'],
-          buildingId: markerData['building_id'],
-          floorId: markerData['floor_id'],
-          x: markerData['x'].toDouble(),
-          y: markerData['y'].toDouble(),
-          orientationDegrees: markerData['orientation_degrees'].toDouble(),
-          qrData: markerData['qr_data'],
-          description: markerData['description'],
+          id: markerData['id'] ?? '',
+          buildingId: markerData['building_id'] ?? buildingId,
+          floorId: markerData['floor_id'] ?? '',
+          x: (markerData['x'] ?? 0).toDouble(),
+          y: (markerData['y'] ?? 0).toDouble(),
+          orientationDegrees: (markerData['orientation_degrees'] ?? 0).toDouble(),
+          qrData: markerData['qr_data'] ?? '',
+          description: markerData['description'] ?? '',
         );
         await _database.saveQRMarker(marker);
       }
+
+      // Save navigation graph metadata (if available)
+      if (data['navigation_graph'] != null) {
+        await _database.saveNavigationGraphMetadata(
+          buildingId,
+          data['navigation_graph'],
+        );
+      }
+
+      // Save locations for smart navigation (if available)
+      if (data['locations'] != null) {
+        await _database.saveLocations(buildingId, data['locations']);
+      }
+
+      // Save categories (if available)
+      if (data['categories'] != null) {
+        await _database.saveCategories(buildingId, data['categories']);
+      }
+
+      // Save shortest paths (if available)
+      if (data['shortest_paths'] != null) {
+        await _database.saveShortestPaths(buildingId, data['shortest_paths']);
+      }
+
+      print('✅ Building downloaded successfully: ${data['metadata']['total_navigation_nodes']} nodes');
     } catch (e) {
+      print('❌ Failed to download building: $e');
       throw Exception('Failed to download building: $e');
     }
+  }
+
+  Map<String, double> _parseDistances(dynamic distances) {
+    if (distances == null) return {};
+    
+    final result = <String, double>{};
+    if (distances is Map) {
+      distances.forEach((key, value) {
+        if (value is num) {
+          result[key.toString()] = value.toDouble();
+        } else if (value is Map && value['distance'] != null) {
+          result[key.toString()] = (value['distance'] as num).toDouble();
+        }
+      });
+    }
+    return result;
   }
 
   Future<bool> isBuildingDownloaded(String buildingId) async {

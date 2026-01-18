@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:indoor_navigation/core/di/injection_container.dart';
 import 'package:indoor_navigation/core/theme/app_theme.dart';
@@ -10,8 +11,17 @@ import 'package:indoor_navigation/features/admin/presentation/bloc/admin_bloc.da
 import 'package:indoor_navigation/features/offline/presentation/bloc/offline_bloc.dart';
 import 'package:indoor_navigation/features/splash/presentation/pages/splash_page.dart';
 
+// Import web-specific configuration
+import 'package:indoor_navigation/core/navigation/web_url_strategy.dart' 
+    if (dart.library.io) 'package:indoor_navigation/core/navigation/web_url_strategy_stub.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Configure web URL strategy for PWA (removes # from URLs)
+  if (kIsWeb) {
+    configureWebUrlStrategy();
+  }
   
   // Initialize dependency injection
   await initializeDependencies();
